@@ -435,7 +435,7 @@ async function loadHistory() {
   // =========================================================
   const MOTION_SPEED = { IDLE: 0, WALK: 0.2, RUN: 0.7 }; // marathon.js 내부 SPEED 와 동일
   const PROGRESS_TICK_MS = 100;
-  const SPEED_MULTIPLIER = 2; // 진행도 차오르는 속도 배율 (시연용)
+  const SPEED_MULTIPLIER = 4; // 진행도 차오르는 속도 배율 (시연용)
 
   let progressGoal = 0;            // = totalPossibleScore (등록된 모든 미션 AI 점수 합)
   let progressAccumulated = 0;     // 시간으로 차오른 누적 진행도
@@ -521,6 +521,10 @@ async function loadHistory() {
       }
     }
 
+    if (typeof window.setSkyprogress === "function") {
+      const rate = progressGoal > 0 ? progressAccumulated / progressGoal : 0;
+      window.setSkyprogress(rate);
+    }
     renderProgressBar();
     if (currentRival) updateRivalUI(); // 내 진행도가 바뀔 때마다 라이벌 상대 위치도 다시 계산
   };
@@ -542,7 +546,7 @@ async function loadHistory() {
   //     - UI 박스에 "X점 앞" / "X점 뒤" 텍스트로 표시
   // =========================================================
   const RIVAL_LANE_X = 1.2;            // 트랙 옆 차선
-  const RIVAL_Z_SCALE = 5;             // 1점당 5 unit (시각적 변화량 강조)
+  const RIVAL_Z_SCALE = 1.5;             // 1점당 5 unit (시각적 변화량 강조)
   const RIVAL_COLOR = 0xff6b6b;        // 라이벌 색상 (빨강 계열)
 
   // 가시성 범위 (점수 차 diff = rivalScore - myProgress 기준)
@@ -550,6 +554,11 @@ async function loadHistory() {
   //   diff < -2  → 내가 2점 이상 추월 → 뒤로 사라짐
   const RIVAL_VISIBLE_FAR_MAX = 5;     // 라이벌이 앞설 때 보이는 최대 점수 차
   const RIVAL_VISIBLE_NEAR_MAX = 2;    // 내가 앞설 때 보이는 최대 점수 차 (추월 거리)
+
+  const waitForMarathon = () => new Promise(resolve => {
+    if (window.__MTReady) return resolve();
+    window.addEventListener('marathon:ready', resolve, {once: true});
+  })
 
   let currentRival = null;             // { nickname, score }
 
@@ -808,15 +817,28 @@ async function loadHistory() {
       if (response.ok) {
         rankingContainer.innerHTML = "";
 
-        // 라이벌 결정: 본인 제외 1위 (없으면 그냥 첫 번째)
+        // 라이벌 결정: 본인과 가장 가까운 1명
         const myNickname = session ? session.name : null;
-        const rivalCandidate = (result.data || []).find(u => u.nickname !== myNickname);
+        const others = (result.data || []).filter(u => u.nickname !== myNickname);
+
+        let rivalCandidate = null;
+        let minDiff = Infinity;
+        for (const u of others) {
+          const score = Number(u.total_score) || 0;
+          const diff = Math.abs(score - progressAccumulated);
+          if (diff < minDiff) {
+            minDiff = diff;
+            rivalCandidate = u;
+          } 
+        }
 
         if (rivalCandidate) {
           currentRival = {
             nickname: rivalCandidate.nickname,
             score: Number(rivalCandidate.total_score) || 0
           };
+
+          await waitForMarathon();
           // 라이벌 캐릭터를 3D 씬에 추가
           if (typeof window.addRival === "function") {
             try {
@@ -1046,7 +1068,7 @@ async function loadHistory() {
   }
   // 페이지 진입 시 첫 로드
   loadTodos();
-  loadRankings();
+  
 
   document.querySelectorAll(".nav-link").forEach((link) => {
     const href = link.getAttribute("href") || "";
