@@ -10,6 +10,33 @@ let containerEl;
 let keydownHandler;
 let resizeHandler;
 let modelsBaseCached = './models/'; // 라이벌 추가 시 재사용
+let sky;                  // 하늘 셰이더 메쉬 (시간대 변화용)
+let particleSystem = null; // 색종이 파티클
+let particleStartTime = 0;
+const PARTICLE_LIFETIME = 1.5; // 초
+
+// 시간대 색상 키프레임
+const SKY_TOP_KEYS = [
+  { rate: 0,   color: new THREE.Color(0x4a90e2) }, // 낮
+  { rate: 0.5, color: new THREE.Color(0xff6b35) }, // 석양
+  { rate: 1,   color: new THREE.Color(0x0a1a3e) }, // 밤
+];
+const SKY_BOTTOM_KEYS = [
+  { rate: 0,   color: new THREE.Color(0xfff5e1) },
+  { rate: 0.5, color: new THREE.Color(0xffcd91) },
+  { rate: 1,   color: new THREE.Color(0x2d3868) },
+];
+
+function lerpColorKeys(keys, rate) {
+  rate = Math.max(0, Math.min(1, rate));
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (rate >= keys[i].rate && rate <= keys[i+1].rate) {
+      const t = (rate - keys[i].rate) / (keys[i+1].rate - keys[i].rate);
+      return keys[i].color.clone().lerp(keys[i+1].color, t);
+    }
+  }
+  return keys[keys.length - 1].color;
+}
 
 const SPEED = {
     IDLE: 0,
@@ -30,6 +57,9 @@ const rivalActions = {};
 let rivalCurrentAction = null;
 let rivalCharacterLoading = false;
 
+let rivalTargetX = null;
+let rivalTargetZ = null;
+const RIVAL_LERP_PER_SEC = 6;
 // === 외부에 노출할 API ===
 
 /**
@@ -123,11 +153,13 @@ export async function initMarathon(container, options = {}) {
         `,
         side: THREE.BackSide,
     });
-    const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+    sky = new THREE.Mesh(skyGeometry, skyMaterial);
     scene.add(sky);
 
+    
+
     // 잔디
-    const grassGeometry = new THREE.PlaneGeometry(50, 200);
+    const grassGeometry = new THREE.PlaneGeometry(400, 400);
     const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x4a7c3a });
     const grass = new THREE.Mesh(grassGeometry, grassMaterial);
     grass.rotation.x = -Math.PI / 2;
@@ -137,8 +169,11 @@ export async function initMarathon(container, options = {}) {
 
     // 산
     scene.add(createMountains());
+    //scene.add(createClouds());
+    scene.add(createTrees());
+    scene.add(createDistanceMarkers());
 
-    scene.fog = null;
+    scene.fog = new THREE.FogExp2(0xfff5e1, 0.018);
 
     track.receiveShadow = true;
     grass.receiveShadow = true;
@@ -280,8 +315,8 @@ function fadeRivalAction(name, duration = 0.3) {
 export function updateRival(opts = {}) {
     if (!rivalCharacter) return;
 
-    if (opts.x !== undefined) rivalCharacter.position.x = opts.x;
-    if (opts.z !== undefined) rivalCharacter.position.z = opts.z;
+    if (opts.x !== undefined) rivalTargetX = opts.x;
+    if (opts.z !== undefined) rivalTargetZ = opts.z;
 
     if (opts.visible !== undefined) {
         rivalCharacter.visible = !!opts.visible;
@@ -313,6 +348,12 @@ export function removeRival() {
     Object.keys(rivalActions).forEach(k => delete rivalActions[k]);
     rivalCurrentAction = null;
 }
+
+export function setSkyProgress(rate) {
+        if (!sky || !sky.material || !sky.material.uniforms) return;
+        sky.material.uniforms.topColor.value = lerpColorKeys(SKY_TOP_KEYS, rate);
+        sky.material.uniforms.bottomColor.value = lerpColorKeys(SKY_BOTTOM_KEYS, rate);
+    }
 
 /**
  * 마라톤 정리 (페이지 이동 시 호출)
@@ -392,8 +433,8 @@ function createTrackTexture() {
 
 function updateScrollObjects(delta) {
     scrollObjects.forEach(obj => {
-        obj.position.z += currentSpeed * delta * 30;
-        if (obj.position.z > obj.userData.recycleZ) {
+        obj.position.z -= currentSpeed * delta * 30;
+        if (obj.position.z < obj.userData.recycleZ) {
             obj.position.z += obj.userData.resetZ - obj.userData.recycleZ;
         }
     });
@@ -408,19 +449,85 @@ function createMountains() {
 
     for (let i = 0; i < 12; i++) {
         const cone = new THREE.Mesh(
-            new THREE.ConeGeometry(8 + Math.random() * 4, 6 + Math.random() * 6, 4),
+            new THREE.ConeGeometry(14 + Math.random() * 6, 28 + Math.random() * 15, 4),
             mountainMat
         );
         cone.position.set(
             (Math.random() - 0.5) * 80,
             Math.random() * 1,
-            60 - Math.random() * 20
+            90 - Math.random() * 20
         );
         cone.rotation.y = Math.random() * Math.PI;
         mountains.add(cone);
     }
 
     return mountains;
+}
+
+function createClouds() {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.92 });
+  for (let i = 0; i < 8; i++) {
+    const cloud = new THREE.Group();
+    for (let j = 0; j < 3; j++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(2 + Math.random()*1.5, 8, 6), mat);
+      s.position.set((Math.random()-0.5)*4, Math.random()*0.5, (Math.random()-0.5)*2);
+      cloud.add(s);
+    }
+    cloud.position.set((Math.random()-0.5)*80, 22 + Math.random()*10, -20 + Math.random()*160);
+    cloud.scale.setScalar(0.8 + Math.random()*0.6);
+    group.add(cloud);
+    addScrollObject(cloud, 60, -110); // 트레드밀 재활용
+  }
+  return group;
+}
+
+function createTrees() {
+  const group = new THREE.Group();
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4226 });
+  const leavesMat = new THREE.MeshStandardMaterial({ color: 0x3a6b2a });
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 30; i++) {
+      const tree = new THREE.Group();
+      const s = 0.8 + Math.random() * 1.0;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18 * s, 0.28 * s, 1.4 * s, 6), trunkMat);
+      trunk.position.y = 0.7 * s; trunk.castShadow = true; tree.add(trunk);
+      const leaves = new THREE.Mesh(new THREE.ConeGeometry(0.9 * s, 2.4 * s, 6 * s), leavesMat);
+      leaves.position.y = 2.6; leaves.castShadow = true; tree.add(leaves);
+      tree.position.set(side * (3 + Math.random()*12), 0, -5 + i * 18 + Math.random()*4);
+      group.add(tree);
+      addScrollObject(tree, -8, 112);
+    }
+  }
+  return group;
+}
+
+function makeMarkerPlane(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fillRect(0, 0, 256, 128);
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, 250, 122);
+  ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 68px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 64);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(2.5, 1.2, 1);
+  return sprite;
+}
+
+function createDistanceMarkers() {
+  const group = new THREE.Group();
+  const labels = ['0', '10', '20', '30', '40'];
+  labels.forEach((label, i) => {
+    const sprite = makeMarkerPlane(label);
+    sprite.position.set(-3.5, 1.6, -80 + i * 30);
+    group.add(sprite);
+    addScrollObject(sprite, -10, 145);
+  });
+  return group;
 }
 
 async function loadCharacter(modelsBase) {
@@ -512,6 +619,8 @@ function onResize() {
     renderer.setSize(width, height);
 }
 
+
+
 // 렌더링 루프
 function animate() {
     animationId = requestAnimationFrame(animate);
@@ -519,6 +628,16 @@ function animate() {
     const delta = Math.min(clock.getDelta(), 0.1);
     if (mixer) mixer.update(delta);
     if (rivalMixer) rivalMixer.update(delta);
+
+    if (rivalCharacter && rivalCharacter.visible) {
+        const t= 1 - Math.exp(-RIVAL_LERP_PER_SEC * delta);
+        if (rivalTargetX !== null){
+            rivalCharacter.position.x += (rivalTargetX - rivalCharacter.position.x) * t;
+        }
+        if (rivalTargetZ !== null){
+            rivalCharacter.position.z += (rivalTargetZ - rivalCharacter.position.z) * t;
+        }
+    }
 
     currentSpeed += (targetSpeed - currentSpeed);
 

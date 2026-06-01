@@ -21,7 +21,7 @@
       /* 마라톤 캔버스: 인라인 박스로 본문 흐름 안에 배치 (폼 아래, 진행도 위) */
       #marathon-container {
         width: 100%;
-        height: 320px;
+        height: 520px;
         margin: 1.5rem 0 2rem;
         border-radius: var(--radius);
         overflow: hidden;
@@ -120,7 +120,7 @@
 
     <!-- 1) 마라톤 모듈 먼저 로드해서 main.js 에 필요한 함수들을 글로벌 노출 -->
     <script type="module">
-      import { initMarathon, setMotionState, addRival, updateRival, removeRival } from './marathon.js';
+      import { initMarathon, setMotionState, addRival, updateRival, removeRival, setSkyProgress } from './marathon.js';
 
       window.addEventListener('DOMContentLoaded', async () => {
         const container = document.getElementById('marathon-container');
@@ -130,13 +130,18 @@
         await initMarathon(container, { modelsBase: './models/' });
 
         // main.js 의 loadTodos() / loadRankings() 가 호출할 수 있게 글로벌 노출
-        window.setMotionState = setMotionState;
+        window.setMotionState = setMotionState; 
+        window.setSkyprogress = setSkyprogress;
         window.addRival = addRival;
         window.updateRival = updateRival;
         window.removeRival = removeRival;
+        
 
         // 페이지 첫 진입 시 idle 보장
         setMotionState(0);
+
+        window.__MTReady = true;
+        window.dispatchEvent(new Event('marathon::ready'));
       });
     </script>
 
