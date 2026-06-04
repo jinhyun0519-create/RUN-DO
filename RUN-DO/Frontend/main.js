@@ -3,6 +3,8 @@ function showToast(message) {
     let toast = document.getElementById("toast-message");
     
     // 1. 화면에 알림창 뼈대가 없다면 즉시 새로 만듭니다.
+    // [분석] 동적 DOM 생성 엔진: HTML에 요소가 없더라도 JS가 실시간으로 노드를 생성하여 
+// 사용자에게 UI 피드백(알림)을 제공하는 방어적 설계 적용
     if (!toast) {
         toast = document.createElement("div");
         toast.id = "toast-message";
@@ -25,6 +27,8 @@ function showToast(message) {
 
     try {
         // JWT 토큰의 Payload 부분(두 번째 조각)을 해석합니다.
+        // [분석] 보안 레이어: JWT 토큰의 Payload를 디코딩(atob)하여 만료 시간(exp)을 검증함.
+// 클라이언트 측에서 세션 만료를 선제적으로 감지하여 강제 로그아웃 시키는 보안 무결성 로직
         const payload = JSON.parse(atob(token.split('.')[1]));
         const now = Math.floor(Date.now() / 1000); // 현재 시간 (초 단위)
 
